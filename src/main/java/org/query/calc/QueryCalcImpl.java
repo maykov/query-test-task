@@ -81,6 +81,14 @@ public class QueryCalcImpl implements QueryCalc {
         }
     }
 
+    public static class DoubleComparator implements Comparator<double[]> {
+
+        @Override
+        public int compare(double[] o1, double[] o2) {
+            return Double.compare(o1[0], o2[0]);
+        }
+    }
+
     @Override
     public void select(Path t1, Path t2, Path t3, Path output) throws IOException {
         // - t1 is a file contains table "t1" with two columns "a" and "x". First line is a number of rows, then each
@@ -159,34 +167,39 @@ public class QueryCalcImpl implements QueryCalc {
 
         // Read t2 and store join of t2 and t3 in RAM
         // at2JoinAt3 is (t2.b+t3.c, t2.y*t3.z)
-        ArrayList<DoublePair> t2xt3 = null;
+        double[][] t2xt3 = null;
         try (BufferedReader t2reader = Files.newBufferedReader(t2)) {
+            int i=0;
             String line = t2reader.readLine();
             int numLines = Integer.parseInt(line);
-            t2xt3 = new ArrayList<>(numLines * at3.size());
+            t2xt3 = new double[numLines * at3.size()][2];
             while ((line = t2reader.readLine()) != null) {
                 String[] a = line.split(" ");
                 Double d1 = Double.parseDouble(a[0]);
                 Double d2 = Double.parseDouble(a[1]);
 
                 for (DoublePair dp3 : at3) {
-                    t2xt3.add(new DoublePair(dp3.d1+d1, dp3.d2*d2));
+                    t2xt3[i][0] = dp3.d1+d1;
+                    t2xt3[i][1] = dp3.d2*d2;
+                    i++;
                 }
             }
         }
 
         // sort at2JoinAt3 by b+c
-        Collections.sort(t2xt3);
+        DoubleComparator comparator = new DoubleComparator();
+        Arrays.sort(t2xt3, comparator);
 
         // replace y*z with the sum of y*z
         double runningSum = 0.0;
-        for (int i=t2xt3.size()-1; i >= 0; i--) {
-            runningSum += t2xt3.get(i).getD2();
-            t2xt3.get(i).setD2(runningSum);
+        for (int i=t2xt3.length-1; i >= 0; i--) {
+            runningSum += t2xt3[i][1];
+            t2xt3[i][1] = runningSum;
         }
 
         // Read t1 into hashtable and compute sums of xyz for each value of a. Also store the row number as a tie breaker
         HashMap<Double, DoubleLineNum> hmt1 = new HashMap<>();
+        double[] doubles = {0.0, 0.0};
         try (BufferedReader t1reader = Files.newBufferedReader(t1)) {
             String line = t1reader.readLine();
             int numLines = Integer.parseInt(line);
@@ -197,16 +210,17 @@ public class QueryCalcImpl implements QueryCalc {
                 Double x = Double.parseDouble(splitLine[1]);
 
                 // find all b+c which are greater than a
-                int i = Collections.binarySearch(t2xt3, new DoublePair(a, 0.0));
+                doubles[0] = a;
+                int i = Arrays.binarySearch(t2xt3, doubles, comparator);
                 if (i < 0) {
                     i = -i-1;
                 }
-                while (i < t2xt3.size() && t2xt3.get(i).getD1() == a) {
+                while (i < t2xt3.length && t2xt3[i][0] == a) {
                     i++;
                 }
                 double xyz = 0.0;
-                if (i < t2xt3.size()) {
-                    xyz = x * t2xt3.get(i).getD2();
+                if (i < t2xt3.length) {
+                    xyz = x * t2xt3[i][1];
                 }
 
                 if (hmt1.containsKey(a)) {
